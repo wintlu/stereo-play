@@ -1,7 +1,7 @@
 {
-  "name": "stereo-server",
+  "name": "stereo-play",
   "version": "1.0.0",
-  "description": "Distributed stereo music player - sync audio across devices with channel separation",
+  "description": "One song, two devices, true stereo - synchronized channel separation across devices",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",

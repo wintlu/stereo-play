@@ -62,7 +62,7 @@ async function main() {
   // Start server
   try {
     await app.listen({ port: PORT, host: '0.0.0.0' });
-    console.log(`\n🎵 Stereo Server running at http://localhost:${PORT}\n`);
+    console.log(`\n🎵 Stereo Play running at http://localhost:${PORT}\n`);
   } catch (err) {
     app.log.error(err);
     process.exit(1);
