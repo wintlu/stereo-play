@@ -26,25 +26,22 @@ export class AudioProcessor {
     const outputDir = path.join(this.audioDir, id);
     await fs.mkdir(outputDir, { recursive: true });
 
-    // Use %(ext)s template so yt-dlp handles extension properly
-    const outputTemplate = path.join(outputDir, 'source.%(ext)s');
-    const stereoPath = path.join(outputDir, 'source.mp3');
     const leftPath = path.join(outputDir, 'left.mp3');
     const rightPath = path.join(outputDir, 'right.mp3');
 
-    // Download audio using yt-dlp
-    console.log(`[AudioProcessor] Downloading: ${url}`);
-    const { title } = await this.downloadWithYtDlp(url, outputTemplate);
-
-    // Split into channels
-    console.log(`[AudioProcessor] Splitting channels...`);
-    await Promise.all([
-      this.extractChannel(stereoPath, leftPath, 'left'),
-      this.extractChannel(stereoPath, rightPath, 'right'),
+    // Get title and stream URL in parallel (faster than downloading)
+    console.log(`[AudioProcessor] Getting stream URL: ${url}`);
+    const [title, streamUrl] = await Promise.all([
+      this.getYouTubeTitle(url),
+      this.getStreamUrl(url),
     ]);
 
-    // Get duration
-    const duration = await this.getAudioDuration(stereoPath);
+    // Stream directly through ffmpeg, splitting both channels in one pass
+    console.log(`[AudioProcessor] Streaming and splitting channels...`);
+    await this.processStreamToChannels(streamUrl, leftPath, rightPath);
+
+    // Get duration from processed file
+    const duration = await this.getAudioDuration(leftPath);
 
     console.log(`[AudioProcessor] Done! Duration: ${duration}s`);
 
@@ -53,7 +50,7 @@ export class AudioProcessor {
       title,
       duration,
       files: {
-        stereo: `/audio/${id}/source.mp3`,
+        stereo: `/audio/${id}/left.mp3`, // No separate stereo file in streaming mode
         left: `/audio/${id}/left.mp3`,
         right: `/audio/${id}/right.mp3`,
       },
@@ -180,6 +177,73 @@ export class AudioProcessor {
       });
 
       proc.on('error', () => resolve('Unknown'));
+    });
+  }
+
+  private getStreamUrl(url: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn('yt-dlp', ['-g', '-f', 'bestaudio', '--no-playlist', url]);
+      let stdout = '';
+      let stderr = '';
+
+      proc.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      proc.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      proc.on('close', (code) => {
+        if (code === 0 && stdout.trim()) {
+          resolve(stdout.trim().split('\n')[0]); // Take first URL if multiple
+        } else {
+          reject(new Error(`Failed to get stream URL: ${stderr}`));
+        }
+      });
+
+      proc.on('error', reject);
+    });
+  }
+
+  private processStreamToChannels(
+    streamUrl: string,
+    leftPath: string,
+    rightPath: string
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // Use filter_complex to split into both channels in one pass
+      const args = [
+        '-i', streamUrl,
+        '-filter_complex', '[0:a]pan=mono|c0=c0[left];[0:a]pan=mono|c0=c1[right]',
+        '-map', '[left]', '-b:a', '192k', leftPath,
+        '-map', '[right]', '-b:a', '192k', rightPath,
+        '-y', // Overwrite
+      ];
+
+      console.log('[ffmpeg] Processing stream to channels...');
+      const proc = spawn('ffmpeg', args);
+      let stderr = '';
+
+      proc.stderr.on('data', (data) => {
+        stderr += data.toString();
+        // Log progress
+        const progress = data.toString().match(/time=(\d+:\d+:\d+)/);
+        if (progress) {
+          process.stdout.write(`\r[ffmpeg] Progress: ${progress[1]}`);
+        }
+      });
+
+      proc.on('close', (code) => {
+        console.log(''); // New line after progress
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`ffmpeg failed: ${stderr.slice(-500)}`));
+        }
+      });
+
+      proc.on('error', reject);
     });
   }
 

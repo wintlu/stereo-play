@@ -150,9 +150,9 @@ function setupWebSocketHandlers() {
 
   wsClient.on('audio_loading', (msg) => {
     isLoading = true;
-    setStatus('Downloading audio from YouTube... (this may take a moment)');
+    setStatus('Processing audio stream...');
     elements.submitBtn.disabled = true;
-    elements.trackTitle.textContent = 'Downloading...';
+    elements.trackTitle.textContent = 'Processing...';
     console.log('[Status] Loading audio:', msg.url);
   });
 
