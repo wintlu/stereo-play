@@ -9,8 +9,11 @@ let wsClient = null;
 let myChannel = null;
 let myClientId = null;
 let currentTitle = '';
+let currentTrackId = null;
 let isLoading = false;
 let pendingAudioUrl = null;
+let trackList = [];
+let playMode = 'sequence'; // 'loop' or 'sequence'
 
 // DOM Elements
 const elements = {
@@ -58,11 +61,19 @@ function initElements() {
   elements.volume = document.getElementById('volume');
   elements.debugLog = document.getElementById('debug-log');
   elements.clearDebug = document.getElementById('clear-debug');
+  elements.playlist = document.getElementById('playlist');
+  elements.trackCount = document.getElementById('track-count');
+  elements.loopBtn = document.getElementById('loop-btn');
+  elements.sequenceBtn = document.getElementById('sequence-btn');
 
   // Clear debug button
   elements.clearDebug?.addEventListener('click', () => {
     if (elements.debugLog) elements.debugLog.innerHTML = '';
   });
+
+  // Playback mode buttons
+  elements.loopBtn?.addEventListener('click', () => setPlayMode('loop'));
+  elements.sequenceBtn?.addEventListener('click', () => setPlayMode('sequence'));
 }
 
 function debugLog(message, type = 'info') {
@@ -148,11 +159,15 @@ function setupWebSocketHandlers() {
   wsClient.on('audio_ready', async (msg) => {
     isLoading = false;
     currentTitle = msg.title;
+    currentTrackId = msg.trackId;
     pendingAudioUrl = msg.audioUrl;
     elements.trackTitle.textContent = msg.title;
     elements.duration.textContent = formatTime(msg.duration);
     elements.submitBtn.disabled = false;
     debugLog(`Audio ready: "${msg.title}" (${msg.audioUrl})`, 'info');
+
+    // Update playlist highlighting
+    updatePlaylistHighlight();
 
     // Try to load audio automatically
     try {
@@ -165,10 +180,16 @@ function setupWebSocketHandlers() {
       debugLog('Audio loaded successfully!', 'info');
     } catch (err) {
       debugLog(`Audio load failed: ${err.message}`, 'error');
-      // Need user interaction first (autoplay policy)
-      setStatus('Click "Load Audio" button to enable playback');
-      showLoadAudioButton(msg.audioUrl);
+      // Enable play button - it will handle loading on click
+      setStatus('Click Play to start');
+      elements.playBtn.disabled = false;
     }
+  });
+
+  wsClient.on('track_list', (msg) => {
+    trackList = msg.tracks;
+    renderPlaylist();
+    debugLog(`Received ${msg.tracks.length} tracks`, 'info');
   });
 
   wsClient.on('play', (msg) => {
@@ -221,7 +242,26 @@ function initEventListeners() {
   });
 
   // Play/Pause
-  elements.playBtn.addEventListener('click', () => {
+  elements.playBtn.addEventListener('click', async () => {
+    // If audio not loaded yet, try to load it first
+    if (!audioManager.isReady() && pendingAudioUrl) {
+      try {
+        elements.playBtn.disabled = true;
+        elements.playBtn.textContent = 'Loading...';
+        await audioManager.resumeContext();
+        await audioManager.loadAudio(pendingAudioUrl);
+        wsClient.sendReady();
+        elements.playBtn.textContent = 'Play';
+        elements.playBtn.disabled = false;
+        enableControls(true);
+        debugLog('Audio loaded via Play button', 'info');
+      } catch (err) {
+        debugLog(`Failed to load: ${err.message}`, 'error');
+        elements.playBtn.textContent = 'Play';
+        elements.playBtn.disabled = false;
+        return;
+      }
+    }
     wsClient.requestPlay();
   });
 
@@ -246,6 +286,8 @@ function initEventListeners() {
   window.addEventListener('audio-ended', () => {
     updatePlayState(false);
     stopProgressUpdate();
+    // Auto-play next track in playlist
+    playNextTrack();
   });
 }
 
@@ -353,41 +395,87 @@ function setStatus(text) {
 }
 
 function generateSessionId() {
-  return Math.random().toString(36).substring(2, 8);
+  return Math.random().toString(36).substring(2, 6);
 }
 
-function showLoadAudioButton(audioUrl) {
-  // Create a button for manual audio loading (needed on mobile)
-  let loadBtn = document.getElementById('load-audio-btn');
-  if (!loadBtn) {
-    loadBtn = document.createElement('button');
-    loadBtn.id = 'load-audio-btn';
-    loadBtn.className = 'control-btn';
-    loadBtn.textContent = 'Load Audio';
-    loadBtn.style.background = '#f59e0b';
-    elements.playBtn.parentNode.insertBefore(loadBtn, elements.playBtn);
+function renderPlaylist() {
+  if (!elements.playlist) return;
+
+  elements.trackCount.textContent = `${trackList.length} tracks`;
+
+  if (trackList.length === 0) {
+    elements.playlist.innerHTML = '<div class="playlist-empty">No tracks yet. Paste a YouTube link to add one!</div>';
+    return;
   }
-  loadBtn.style.display = 'inline-block';
 
-  loadBtn.onclick = async () => {
-    loadBtn.disabled = true;
-    loadBtn.textContent = 'Loading...';
-    try {
-      // First resume AudioContext with user gesture
-      await audioManager.resumeContext();
-      console.log('[main.js] AudioContext resumed via button click');
+  elements.playlist.innerHTML = trackList
+    .map(
+      (track, index) => `
+      <div class="playlist-item ${track.id === currentTrackId ? 'active' : ''}" data-track-id="${track.id}">
+        <span class="track-number">${index + 1}</span>
+        <div class="track-info">
+          <div class="track-title">${escapeHtml(track.title)}</div>
+        </div>
+        <span class="track-duration">${formatTime(track.duration)}</span>
+      </div>
+    `
+    )
+    .join('');
 
-      await audioManager.loadAudio(audioUrl);
-      wsClient.sendReady();
-      setStatus(`Ready to play (${myChannel} channel)`);
-      enableControls(true);
-      loadBtn.style.display = 'none';
-      console.log('[Status] Audio loaded via button');
-    } catch (err) {
-      console.error('Failed to load audio:', err);
-      setStatus('Failed: ' + err.message);
-      loadBtn.disabled = false;
-      loadBtn.textContent = 'Retry Load';
+  // Add click handlers
+  elements.playlist.querySelectorAll('.playlist-item').forEach((item) => {
+    item.addEventListener('click', () => {
+      const trackId = item.dataset.trackId;
+      loadTrack(trackId);
+    });
+  });
+}
+
+function updatePlaylistHighlight() {
+  if (!elements.playlist) return;
+
+  elements.playlist.querySelectorAll('.playlist-item').forEach((item) => {
+    const isActive = item.dataset.trackId === currentTrackId;
+    item.classList.toggle('active', isActive);
+  });
+}
+
+function loadTrack(trackId) {
+  debugLog(`Loading track: ${trackId}`, 'send');
+  wsClient.send({ type: 'load_track', trackId });
+}
+
+function playNextTrack() {
+  if (trackList.length === 0) return;
+
+  if (playMode === 'loop') {
+    // Loop current track - just replay from start
+    if (currentTrackId) {
+      debugLog(`Looping: ${currentTitle}`, 'info');
+      wsClient.requestPlay();
     }
-  };
+  } else {
+    // Sequence mode - play next track
+    const currentIndex = trackList.findIndex((t) => t.id === currentTrackId);
+    const nextIndex = (currentIndex + 1) % trackList.length;
+    const nextTrack = trackList[nextIndex];
+
+    if (nextTrack) {
+      debugLog(`Playing next: ${nextTrack.title}`, 'info');
+      loadTrack(nextTrack.id);
+    }
+  }
+}
+
+function setPlayMode(mode) {
+  playMode = mode;
+  elements.loopBtn?.classList.toggle('active', mode === 'loop');
+  elements.sequenceBtn?.classList.toggle('active', mode === 'sequence');
+  debugLog(`Play mode: ${mode}`, 'info');
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }

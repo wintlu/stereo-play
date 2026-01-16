@@ -50,6 +50,12 @@ async function main() {
     };
   });
 
+  // List all available audio tracks
+  app.get('/api/tracks', async () => {
+    const tracks = await audioProcessor.listAllAudio();
+    return { tracks };
+  });
+
   // WebSocket handler
   setupWebSocket(app, sessionManager, audioProcessor);
 

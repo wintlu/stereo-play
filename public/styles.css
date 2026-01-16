@@ -247,6 +247,128 @@ section {
   accent-color: #667eea;
 }
 
+/* Playback Options */
+.playback-options {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.option-btn {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+  color: #888;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.option-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #e0e0e0;
+}
+
+.option-btn.active {
+  background: rgba(102, 126, 234, 0.3);
+  border-color: #667eea;
+  color: #667eea;
+}
+
+.option-btn .icon {
+  font-size: 1rem;
+}
+
+/* Playlist Section */
+.playlist-section h3 {
+  font-size: 0.9rem;
+  color: #888;
+  margin-bottom: 15px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.track-count {
+  font-size: 0.75rem;
+  background: rgba(102, 126, 234, 0.3);
+  padding: 2px 8px;
+  border-radius: 10px;
+  color: #667eea;
+}
+
+.playlist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.playlist-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 15px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+
+.playlist-item:hover {
+  background: rgba(102, 126, 234, 0.2);
+  transform: translateX(4px);
+}
+
+.playlist-item.active {
+  background: rgba(102, 126, 234, 0.3);
+  border-left: 3px solid #667eea;
+}
+
+.playlist-item.playing {
+  background: rgba(74, 222, 128, 0.2);
+  border-left: 3px solid #4ade80;
+}
+
+.playlist-item .track-number {
+  font-size: 0.8rem;
+  color: #666;
+  min-width: 24px;
+}
+
+.playlist-item .track-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.playlist-item .track-title {
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.playlist-item .track-duration {
+  font-size: 0.8rem;
+  color: #888;
+  font-family: monospace;
+}
+
+.playlist-empty {
+  color: #666;
+  text-align: center;
+  padding: 20px;
+  font-size: 0.9rem;
+}
+
 /* Clients Section */
 .clients-section h3 {
   font-size: 0.9rem;
