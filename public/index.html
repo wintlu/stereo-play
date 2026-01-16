@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stereo Server</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Stereo Server</h1>
+      <p class="subtitle">Distributed stereo music across devices</p>
+    </header>
+
+    <section class="session-section">
+      <div class="session-info">
+        <span class="label">Session:</span>
+        <span id="session-id" class="session-id"></span>
+        <span id="channel-display" class="channel-badge"></span>
+      </div>
+      <div class="session-share">
+        <input type="text" id="session-link" readonly>
+        <button id="copy-btn">Copy</button>
+      </div>
+    </section>
+
+    <section class="input-section">
+      <input
+        type="text"
+        id="link-input"
+        placeholder="Paste YouTube URL here..."
+      >
+      <button id="submit-btn">Load</button>
+    </section>
+
+    <section class="player-section">
+      <div id="track-title" class="track-title">No track loaded</div>
+
+      <div class="controls">
+        <button id="play-btn" class="control-btn" disabled>Play</button>
+        <button id="pause-btn" class="control-btn" style="display:none" disabled>Pause</button>
+      </div>
+
+      <div class="progress-container">
+        <span id="current-time" class="time">0:00</span>
+        <div id="progress-bar" class="progress-bar">
+          <div id="progress-fill" class="progress-fill"></div>
+        </div>
+        <span id="duration" class="time">0:00</span>
+      </div>
+
+      <div class="volume-container">
+        <label for="volume">Volume:</label>
+        <input type="range" id="volume" min="0" max="100" value="100">
+      </div>
+    </section>
+
+    <section class="clients-section">
+      <h3>Connected Clients</h3>
+      <div id="client-list" class="client-list"></div>
+    </section>
+
+    <div id="status" class="status">Connecting...</div>
+
+    <section class="debug-section">
+      <h3>Debug Log <button id="clear-debug" style="font-size: 12px;">Clear</button></h3>
+      <div id="debug-log" class="debug-log"></div>
+    </section>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
