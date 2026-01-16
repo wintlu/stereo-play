@@ -10,20 +10,18 @@ interface ClientContext {
 
 type ServerMessage =
   | { type: 'session_joined'; sessionId: string; clientId: string; channel: string }
-  | { type: 'audio_ready'; audioUrl: string; duration: number; title: string; trackId: string }
+  | { type: 'audio_ready'; audioUrl: string; duration: number; title: string }
   | { type: 'audio_loading'; url: string }
   | { type: 'play'; startTime: number; serverTimestamp: number }
   | { type: 'pause'; currentTime: number; serverTimestamp: number }
   | { type: 'seek'; targetTime: number; serverTimestamp: number }
   | { type: 'pong'; serverTimestamp: number; clientTimestamp: number }
   | { type: 'client_list'; clients: Array<{ id: string; channel: string; ready: boolean }> }
-  | { type: 'track_list'; tracks: Array<{ id: string; title: string; duration: number }> }
   | { type: 'error'; message: string };
 
 type ClientMessage =
   | { type: 'join_session'; sessionId: string }
   | { type: 'submit_link'; url: string }
-  | { type: 'load_track'; trackId: string }
   | { type: 'ready' }
   | { type: 'play_request' }
   | { type: 'pause_request' }
@@ -100,16 +98,8 @@ async function handleMessage(
           audioUrl,
           duration: session.audioSource.duration,
           title: session.audioSource.title,
-          trackId: extractTrackId(session.audioSource.files.stereo),
         });
       }
-
-      // Send available tracks list
-      const tracks = await audioProcessor.listAllAudio();
-      send(ws, {
-        type: 'track_list',
-        tracks: tracks.map((t) => ({ id: t.id, title: t.title, duration: t.duration })),
-      });
 
       // Broadcast updated client list
       sessionManager.broadcastToSession(sessionId, {
@@ -159,59 +149,12 @@ async function handleMessage(
               audioUrl,
               duration: processed.duration,
               title: processed.title,
-              trackId: processed.id,
             });
           }
-
-          // Update track list for all clients
-          const tracks = await audioProcessor.listAllAudio();
-          sessionManager.broadcastToSession(ctx.sessionId, {
-            type: 'track_list',
-            tracks: tracks.map((t) => ({ id: t.id, title: t.title, duration: t.duration })),
-          });
         }
       } catch (err) {
         console.error('Audio processing error:', err);
         send(ws, { type: 'error', message: 'Failed to process audio' });
-      }
-      break;
-    }
-
-    case 'load_track': {
-      if (!ctx) return;
-      const { trackId } = message;
-
-      // Find track in library
-      const tracks = await audioProcessor.listAllAudio();
-      const track = tracks.find((t) => t.id === trackId);
-
-      if (!track) {
-        send(ws, { type: 'error', message: 'Track not found' });
-        return;
-      }
-
-      // Update session with this track
-      sessionManager.setAudioSource(ctx.sessionId, {
-        url: track.originalUrl,
-        title: track.title,
-        duration: track.duration,
-        files: track.files,
-      });
-
-      // Send to all clients
-      const session = sessionManager.getSession(ctx.sessionId);
-      if (session) {
-        for (const client of session.clients.values()) {
-          client.isReady = false;
-          const audioUrl = getAudioUrlForChannel(session, client.assignedChannel);
-          sendTo(client, {
-            type: 'audio_ready',
-            audioUrl,
-            duration: track.duration,
-            title: track.title,
-            trackId: track.id,
-          });
-        }
       }
       break;
     }
@@ -344,10 +287,4 @@ function isYouTubeUrl(url: string): boolean {
   } catch {
     return false;
   }
-}
-
-function extractTrackId(filePath: string): string {
-  // Extract ID from path like "/audio/5T9MKlxMG-/source.mp3"
-  const match = filePath.match(/\/audio\/([^/]+)\//);
-  return match ? match[1] : '';
 }

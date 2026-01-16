@@ -58,57 +58,7 @@ export class AudioProcessor {
       },
     };
 
-    // Save metadata for library listing
-    await this.saveMetadata(outputDir, result, url);
-
     return result;
-  }
-
-  private async saveMetadata(
-    outputDir: string,
-    audio: ProcessedAudio,
-    originalUrl: string
-  ): Promise<void> {
-    const metadata = {
-      id: audio.id,
-      title: audio.title,
-      duration: audio.duration,
-      files: audio.files,
-      originalUrl,
-      createdAt: Date.now(),
-    };
-    await fs.writeFile(
-      path.join(outputDir, 'metadata.json'),
-      JSON.stringify(metadata, null, 2)
-    );
-  }
-
-  async listAllAudio(): Promise<Array<ProcessedAudio & { originalUrl: string; createdAt: number }>> {
-    const tracks: Array<ProcessedAudio & { originalUrl: string; createdAt: number }> = [];
-
-    try {
-      const entries = await fs.readdir(this.audioDir, { withFileTypes: true });
-
-      for (const entry of entries) {
-        if (entry.isDirectory() && entry.name !== '.gitkeep') {
-          const metadataPath = path.join(this.audioDir, entry.name, 'metadata.json');
-          try {
-            const data = await fs.readFile(metadataPath, 'utf-8');
-            const metadata = JSON.parse(data);
-            tracks.push(metadata);
-          } catch {
-            // Skip folders without metadata (old downloads)
-          }
-        }
-      }
-
-      // Sort by createdAt descending (newest first)
-      tracks.sort((a, b) => b.createdAt - a.createdAt);
-    } catch (err) {
-      console.error('[AudioProcessor] Error listing audio:', err);
-    }
-
-    return tracks;
   }
 
   private async downloadWithYtDlp(

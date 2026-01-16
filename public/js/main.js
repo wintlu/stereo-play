@@ -9,11 +9,8 @@ let wsClient = null;
 let myChannel = null;
 let myClientId = null;
 let currentTitle = '';
-let currentTrackId = null;
 let isLoading = false;
 let pendingAudioUrl = null;
-let trackList = [];
-let playMode = 'sequence'; // 'loop' or 'sequence'
 
 // DOM Elements
 const elements = {
@@ -61,19 +58,11 @@ function initElements() {
   elements.volume = document.getElementById('volume');
   elements.debugLog = document.getElementById('debug-log');
   elements.clearDebug = document.getElementById('clear-debug');
-  elements.playlist = document.getElementById('playlist');
-  elements.trackCount = document.getElementById('track-count');
-  elements.loopBtn = document.getElementById('loop-btn');
-  elements.sequenceBtn = document.getElementById('sequence-btn');
 
   // Clear debug button
   elements.clearDebug?.addEventListener('click', () => {
     if (elements.debugLog) elements.debugLog.innerHTML = '';
   });
-
-  // Playback mode buttons
-  elements.loopBtn?.addEventListener('click', () => setPlayMode('loop'));
-  elements.sequenceBtn?.addEventListener('click', () => setPlayMode('sequence'));
 }
 
 function debugLog(message, type = 'info') {
@@ -159,15 +148,11 @@ function setupWebSocketHandlers() {
   wsClient.on('audio_ready', async (msg) => {
     isLoading = false;
     currentTitle = msg.title;
-    currentTrackId = msg.trackId;
     pendingAudioUrl = msg.audioUrl;
     elements.trackTitle.textContent = msg.title;
     elements.duration.textContent = formatTime(msg.duration);
     elements.submitBtn.disabled = false;
     debugLog(`Audio ready: "${msg.title}" (${msg.audioUrl})`, 'info');
-
-    // Update playlist highlighting
-    updatePlaylistHighlight();
 
     // Try to load audio automatically
     try {
@@ -184,12 +169,6 @@ function setupWebSocketHandlers() {
       setStatus('Click Play to start');
       elements.playBtn.disabled = false;
     }
-  });
-
-  wsClient.on('track_list', (msg) => {
-    trackList = msg.tracks;
-    renderPlaylist();
-    debugLog(`Received ${msg.tracks.length} tracks`, 'info');
   });
 
   wsClient.on('play', (msg) => {
@@ -286,8 +265,6 @@ function initEventListeners() {
   window.addEventListener('audio-ended', () => {
     updatePlayState(false);
     stopProgressUpdate();
-    // Auto-play next track in playlist
-    playNextTrack();
   });
 }
 
@@ -396,86 +373,4 @@ function setStatus(text) {
 
 function generateSessionId() {
   return Math.random().toString(36).substring(2, 6);
-}
-
-function renderPlaylist() {
-  if (!elements.playlist) return;
-
-  elements.trackCount.textContent = `${trackList.length} tracks`;
-
-  if (trackList.length === 0) {
-    elements.playlist.innerHTML = '<div class="playlist-empty">No tracks yet. Paste a YouTube link to add one!</div>';
-    return;
-  }
-
-  elements.playlist.innerHTML = trackList
-    .map(
-      (track, index) => `
-      <div class="playlist-item ${track.id === currentTrackId ? 'active' : ''}" data-track-id="${track.id}">
-        <span class="track-number">${index + 1}</span>
-        <div class="track-info">
-          <div class="track-title">${escapeHtml(track.title)}</div>
-        </div>
-        <span class="track-duration">${formatTime(track.duration)}</span>
-      </div>
-    `
-    )
-    .join('');
-
-  // Add click handlers
-  elements.playlist.querySelectorAll('.playlist-item').forEach((item) => {
-    item.addEventListener('click', () => {
-      const trackId = item.dataset.trackId;
-      loadTrack(trackId);
-    });
-  });
-}
-
-function updatePlaylistHighlight() {
-  if (!elements.playlist) return;
-
-  elements.playlist.querySelectorAll('.playlist-item').forEach((item) => {
-    const isActive = item.dataset.trackId === currentTrackId;
-    item.classList.toggle('active', isActive);
-  });
-}
-
-function loadTrack(trackId) {
-  debugLog(`Loading track: ${trackId}`, 'send');
-  wsClient.send({ type: 'load_track', trackId });
-}
-
-function playNextTrack() {
-  if (trackList.length === 0) return;
-
-  if (playMode === 'loop') {
-    // Loop current track - just replay from start
-    if (currentTrackId) {
-      debugLog(`Looping: ${currentTitle}`, 'info');
-      wsClient.requestPlay();
-    }
-  } else {
-    // Sequence mode - play next track
-    const currentIndex = trackList.findIndex((t) => t.id === currentTrackId);
-    const nextIndex = (currentIndex + 1) % trackList.length;
-    const nextTrack = trackList[nextIndex];
-
-    if (nextTrack) {
-      debugLog(`Playing next: ${nextTrack.title}`, 'info');
-      loadTrack(nextTrack.id);
-    }
-  }
-}
-
-function setPlayMode(mode) {
-  playMode = mode;
-  elements.loopBtn?.classList.toggle('active', mode === 'loop');
-  elements.sequenceBtn?.classList.toggle('active', mode === 'sequence');
-  debugLog(`Play mode: ${mode}`, 'info');
-}
-
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
 }
