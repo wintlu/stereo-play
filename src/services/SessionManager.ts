@@ -155,6 +155,19 @@ export class SessionManager {
   addClient(sessionId: string, ws: WebSocket): ClientInfo {
     const session = this.getOrCreateSession(sessionId);
     const clientId = nanoid(6);
+
+    // Clean up stale clients (disconnected websockets)
+    const staleClients: string[] = [];
+    for (const [id, client] of session.clients) {
+      if (client.websocket.readyState !== 1) { // 1 = OPEN
+        staleClients.push(id);
+      }
+    }
+    for (const id of staleClients) {
+      session.clients.delete(id);
+      console.log(`[SessionManager] Cleaned up stale client ${id}`);
+    }
+
     const channel = this.assignChannel(session);
 
     const client: ClientInfo = {
@@ -171,18 +184,19 @@ export class SessionManager {
 
   removeClient(sessionId: string, clientId: string): void {
     const session = this.sessions.get(sessionId);
-    if (session) {
-      session.clients.delete(clientId);
-      // Only clean up sessions WITHOUT audio after a delay
-      // Sessions with audio are kept forever (persisted)
-      if (session.clients.size === 0 && !session.audioSource) {
-        setTimeout(() => {
-          const s = this.sessions.get(sessionId);
-          if (s && s.clients.size === 0 && !s.audioSource) {
-            this.sessions.delete(sessionId);
-          }
-        }, 60000); // Keep empty sessions for 1 minute
-      }
+    if (!session) return;
+
+    session.clients.delete(clientId);
+
+    // Only clean up sessions WITHOUT audio after a delay
+    // Sessions with audio are kept forever (persisted)
+    if (session.clients.size === 0 && !session.audioSource) {
+      setTimeout(() => {
+        const s = this.sessions.get(sessionId);
+        if (s && s.clients.size === 0 && !s.audioSource) {
+          this.sessions.delete(sessionId);
+        }
+      }, 60000); // Keep empty sessions for 1 minute
     }
   }
 
@@ -282,4 +296,18 @@ export class SessionManager {
       ready: c.isReady,
     }));
   }
+
+  // Get client by channel (for sending volume commands)
+  getClientByChannel(sessionId: string, channel: Channel): ClientInfo | undefined {
+    const session = this.sessions.get(sessionId);
+    if (!session) return undefined;
+
+    for (const client of session.clients.values()) {
+      if (client.assignedChannel === channel) {
+        return client;
+      }
+    }
+    return undefined;
+  }
+
 }

@@ -37,6 +37,7 @@
     <section class="player-section">
       <div id="track-title" class="track-title">No track loaded</div>
 
+      <!-- Controls (all clients see these in peer model) -->
       <div class="controls">
         <button id="play-btn" class="control-btn" disabled>Play</button>
         <button id="pause-btn" class="control-btn" style="display:none" disabled>Pause</button>
@@ -50,11 +51,6 @@
         <span id="duration" class="time">0:00</span>
       </div>
 
-      <div class="volume-container">
-        <label for="volume">Volume:</label>
-        <input type="range" id="volume" min="0" max="100" value="100">
-      </div>
-
     </section>
 
     <section class="clients-section">
@@ -62,10 +58,15 @@
       <div id="client-list" class="client-list"></div>
     </section>
 
-    <div id="status" class="status">Connecting...</div>
+    <div class="status-container">
+      <span id="status" class="status">Connecting...</span>
+    </div>
 
     <section class="debug-section">
-      <h3>Debug Log <button id="clear-debug" style="font-size: 12px;">Clear</button></h3>
+      <h3>Debug Log
+        <button id="copy-debug" style="font-size: 12px;">Copy</button>
+        <button id="clear-debug" style="font-size: 12px;">Clear</button>
+      </h3>
       <div id="debug-log" class="debug-log"></div>
     </section>
   </div>

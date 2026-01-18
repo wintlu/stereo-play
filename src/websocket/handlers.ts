@@ -17,6 +17,7 @@ type ServerMessage =
   | { type: 'seek'; targetTime: number; serverTimestamp: number }
   | { type: 'pong'; serverTimestamp: number; clientTimestamp: number }
   | { type: 'client_list'; clients: Array<{ id: string; channel: string; ready: boolean }> }
+  | { type: 'volume_change'; volume: number }
   | { type: 'error'; message: string };
 
 type ClientMessage =
@@ -26,6 +27,7 @@ type ClientMessage =
   | { type: 'play_request' }
   | { type: 'pause_request' }
   | { type: 'seek_request'; targetTime: number }
+  | { type: 'volume_request'; channel: 'left' | 'right'; volume: number }
   | { type: 'ping'; clientTimestamp: number };
 
 export function setupWebSocket(
@@ -40,6 +42,10 @@ export function setupWebSocket(
     ws.on('message', async (data) => {
       try {
         const message = JSON.parse(data.toString()) as ClientMessage;
+        // Log all incoming messages (except ping for noise reduction)
+        if (message.type !== 'ping') {
+          console.log(`[WS] Received message: ${message.type} from ${ctx?.clientId || 'unknown'}`);
+        }
         await handleMessage(ws, message, ctx, sessionManager, audioProcessor, (newCtx) => {
           ctx = newCtx;
         });
@@ -52,7 +58,8 @@ export function setupWebSocket(
     ws.on('close', () => {
       if (ctx) {
         sessionManager.removeClient(ctx.sessionId, ctx.clientId);
-        // Notify remaining clients
+
+        // Notify remaining clients of updated list
         sessionManager.broadcastToSession(ctx.sessionId, {
           type: 'client_list',
           clients: sessionManager.getClientList(ctx.sessionId),
@@ -168,13 +175,42 @@ async function handleMessage(
         type: 'client_list',
         clients: sessionManager.getClientList(ctx.sessionId),
       });
+
+      // If session is already playing, send play command to this client
+      const session = sessionManager.getSession(ctx.sessionId);
+      console.log(`[WS] Client ${ctx.clientId} ready. Session playback state:`, session?.playbackState);
+
+      if (session?.playbackState.isPlaying) {
+        const client = session.clients.get(ctx.clientId);
+        if (client) {
+          const serverTimestamp = Date.now();
+          // Calculate current position based on when playback started
+          const elapsedSinceSync = (serverTimestamp - session.playbackState.lastSyncTimestamp) / 1000;
+          const currentPosition = session.playbackState.currentTime + elapsedSinceSync;
+
+          console.log(`[WS] Sending play to late-joining client ${ctx.clientId} at position ${currentPosition.toFixed(1)}s`);
+
+          sendTo(client, {
+            type: 'play',
+            startTime: currentPosition,
+            serverTimestamp: serverTimestamp + 200, // Small delay to allow audio to start
+          });
+        }
+      } else {
+        console.log(`[WS] Session not playing, not sending play to ${ctx.clientId}`);
+      }
       break;
     }
 
     case 'play_request': {
       if (!ctx) return;
+      console.log(`[WS] play_request from ${ctx.clientId}`);
+
       const session = sessionManager.getSession(ctx.sessionId);
-      if (!session?.audioSource) return;
+      if (!session?.audioSource) {
+        console.log(`[WS] No audio source for session ${ctx.sessionId}`);
+        return;
+      }
 
       const serverTimestamp = Date.now();
       const scheduledTime = serverTimestamp + 500; // Schedule 500ms in future
@@ -183,6 +219,7 @@ async function handleMessage(
         isPlaying: true,
         lastSyncTimestamp: serverTimestamp,
       });
+      console.log(`[WS] Session ${ctx.sessionId} now playing, currentTime: ${session.playbackState.currentTime}`);
 
       // Broadcast play command with synchronized timestamp
       for (const client of session.clients.values()) {
@@ -203,14 +240,21 @@ async function handleMessage(
 
       const serverTimestamp = Date.now();
 
+      // Calculate current position based on elapsed time since play started
+      const elapsedSinceSync = (serverTimestamp - session.playbackState.lastSyncTimestamp) / 1000;
+      const currentPosition = session.playbackState.isPlaying
+        ? session.playbackState.currentTime + elapsedSinceSync
+        : session.playbackState.currentTime;
+
       sessionManager.updatePlaybackState(ctx.sessionId, {
         isPlaying: false,
+        currentTime: currentPosition,
         lastSyncTimestamp: serverTimestamp,
       });
 
       sessionManager.broadcastToSession(ctx.sessionId, {
         type: 'pause',
-        currentTime: session.playbackState.currentTime,
+        currentTime: currentPosition,
         serverTimestamp,
       });
       break;
@@ -248,6 +292,19 @@ async function handleMessage(
         serverTimestamp,
         clientTimestamp,
       });
+      break;
+    }
+
+    case 'volume_request': {
+      if (!ctx) return;
+      const { channel, volume } = message;
+      const targetClient = sessionManager.getClientByChannel(ctx.sessionId, channel);
+      if (targetClient) {
+        sendTo(targetClient, {
+          type: 'volume_change',
+          volume,
+        });
+      }
       break;
     }
   }

@@ -8,16 +8,66 @@ export class AudioManager {
     this.pauseTime = 0;
     this.isPlaying = false;
     this.duration = 0;
+
+    // Prevent Chrome from suspending audio in background tabs
+    this.setupBackgroundPlayback();
+  }
+
+  setupBackgroundPlayback() {
+    // Resume AudioContext when tab becomes visible again
+    document.addEventListener('visibilitychange', () => {
+      this.log(`Tab visibility: ${document.visibilityState}, context: ${this.audioContext?.state}`);
+      if (document.visibilityState === 'visible' && this.audioContext) {
+        if (this.audioContext.state === 'suspended') {
+          this.log('Tab visible - resuming suspended AudioContext', 'warn');
+          this.audioContext.resume();
+        }
+      } else if (document.visibilityState === 'hidden') {
+        this.log('Tab hidden - audio may be throttled by browser', 'warn');
+      }
+    });
+
+    // Periodically check and resume suspended context (helps with background tabs)
+    setInterval(() => {
+      if (this.audioContext && this.isPlaying) {
+        if (this.audioContext.state === 'suspended') {
+          this.log('AudioContext suspended while playing - resuming', 'error');
+          this.audioContext.resume();
+        }
+      }
+    }, 1000);
+
+    // Monitor AudioContext state changes
+    this.monitorContextState();
+  }
+
+  monitorContextState() {
+    if (!this.audioContext) return;
+
+    this.audioContext.onstatechange = () => {
+      this.log(`AudioContext state changed: ${this.audioContext.state}`,
+        this.audioContext.state === 'suspended' ? 'error' : 'info');
+    };
+  }
+
+  // Emit log events for debug panel
+  log(message, type = 'info') {
+    console.log(`[AudioManager] ${message}`);
+    window.dispatchEvent(new CustomEvent('audio-log', {
+      detail: { message: `[Audio] ${message}`, type }
+    }));
   }
 
   async init() {
     try {
       this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
       this.gainNode = this.audioContext.createGain();
+      this.gainNode.gain.value = 1.0; // Ensure full volume
       this.gainNode.connect(this.audioContext.destination);
-      console.log('[AudioManager] AudioContext state:', this.audioContext.state);
+      this.log(`AudioContext created, state: ${this.audioContext.state}, sample rate: ${this.audioContext.sampleRate}`);
+      this.monitorContextState();
     } catch (e) {
-      console.error('[AudioManager] Failed to create AudioContext:', e);
+      this.log(`Failed to create AudioContext: ${e.message}`, 'error');
       throw e;
     }
   }
@@ -50,6 +100,35 @@ export class AudioManager {
       await this.audioContext.resume();
       console.log('[AudioManager] Resumed, state:', this.audioContext.state);
     }
+
+    // iOS audio unlock: play a silent buffer to enable future programmatic playback
+    await this.unlockAudio();
+  }
+
+  async unlockAudio() {
+    if (!this.audioContext) return;
+
+    try {
+      // Method 1: Silent buffer
+      const silentBuffer = this.audioContext.createBuffer(1, 1, 22050);
+      const source = this.audioContext.createBufferSource();
+      source.buffer = silentBuffer;
+      source.connect(this.audioContext.destination);
+      source.start(0);
+
+      // Method 2: Silent oscillator (more reliable on some iOS versions)
+      const oscillator = this.audioContext.createOscillator();
+      const silentGain = this.audioContext.createGain();
+      silentGain.gain.value = 0; // Silent
+      oscillator.connect(silentGain);
+      silentGain.connect(this.audioContext.destination);
+      oscillator.start(0);
+      oscillator.stop(0.001);
+
+      console.log('[AudioManager] iOS audio unlocked');
+    } catch (e) {
+      console.log('[AudioManager] Audio unlock failed (may be ok):', e.message);
+    }
   }
 
   play(fromTime = 0) {
@@ -63,16 +142,8 @@ export class AudioManager {
     // Create new source node (they're one-time-use)
     this.sourceNode = this.audioContext.createBufferSource();
     this.sourceNode.buffer = this.audioBuffer;
+    this.sourceNode.loop = true; // Enable repeat mode
     this.sourceNode.connect(this.gainNode);
-
-    // Handle track end
-    this.sourceNode.onended = () => {
-      if (this.isPlaying) {
-        this.isPlaying = false;
-        this.pauseTime = 0;
-        window.dispatchEvent(new CustomEvent('audio-ended'));
-      }
-    };
 
     this.startTime = this.audioContext.currentTime - fromTime;
     this.sourceNode.start(0, fromTime);
@@ -81,10 +152,16 @@ export class AudioManager {
   }
 
   playAt(fromTime, scheduledTime) {
-    if (!this.audioBuffer) return;
+    if (!this.audioBuffer) {
+      console.log('[AudioManager] playAt: No audio buffer!');
+      return;
+    }
+
+    console.log('[AudioManager] playAt: context state:', this.audioContext.state, 'gain:', this.gainNode.gain.value);
 
     // Resume if suspended
     if (this.audioContext.state === 'suspended') {
+      console.log('[AudioManager] playAt: Resuming suspended context...');
       this.audioContext.resume();
     }
 
@@ -97,15 +174,8 @@ export class AudioManager {
     // Create new source node
     this.sourceNode = this.audioContext.createBufferSource();
     this.sourceNode.buffer = this.audioBuffer;
+    this.sourceNode.loop = true; // Enable repeat mode
     this.sourceNode.connect(this.gainNode);
-
-    this.sourceNode.onended = () => {
-      if (this.isPlaying) {
-        this.isPlaying = false;
-        this.pauseTime = 0;
-        window.dispatchEvent(new CustomEvent('audio-ended'));
-      }
-    };
 
     // Schedule start at exact time
     const now = this.audioContext.currentTime;
